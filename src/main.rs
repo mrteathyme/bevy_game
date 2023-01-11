@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use std::f32::consts::PI;
+use bevy::input::mouse::MouseMotion;
+use std::f32::consts::{PI, TAU};
+use bevy::window::CursorGrabMode;
 
 pub const HEIGHT: f32 = 1080.0;
 pub const WIDTH: f32 = 2560.0;
@@ -22,14 +24,17 @@ fn main() {
 
     .add_startup_system(spawn_basic_scene)
     .add_startup_system(spawn_camera)
+    .add_startup_system(grab_mouse)
     .add_system(tower_shooting)
     .add_system(bullet_despawn)
+    .add_system(camera_movement)
+    //.add_system(mouse_motion)
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         window: WindowDescriptor {
             width: WIDTH,
             height: HEIGHT,
             title: "My Bevy Game".to_string(),
-            //resizable: false,
+             resizable: false,
             ..default()
         },
         ..default()
@@ -121,4 +126,76 @@ fn bullet_despawn(
             commands.entity(entity).despawn_recursive();
         }
     }
+}
+
+fn camera_movement(
+    windows: Res<Windows>,
+    mut commands: Commands,
+    mut keys: Res<Input<KeyCode>>,
+    mut motion_evr: EventReader<MouseMotion>,
+    mut cameras: Query<&mut Transform, With<Camera>>,
+) {
+    let mut rotation_move = Vec2::ZERO;
+    for mut camera in &mut cameras {
+        for ev in motion_evr.iter() {
+            rotation_move += ev.delta;
+            let window = get_primary_window_size(&windows);
+            let delta_x = {
+            let up = camera.rotation * Vec3::Y;
+            let delta = rotation_move.x / window.x * std::f32::consts::PI * 2.0 * 0.1;
+            if up.y <= 0.0 { -delta } else { delta }
+            };
+            let delta_y = rotation_move.y / window.y * std::f32::consts::PI * 0.1;
+            let yaw = Quat::from_rotation_y(-delta_x);
+            let pitch = Quat::from_rotation_x(-delta_y);
+            camera.rotation = yaw * camera.rotation; // rotate around global y axis
+            camera.rotation = camera.rotation * pitch; // rotate around local x axis
+            println!("Mouse moved: X: {} px, Y: {} px", ev.delta.x, ev.delta.y);
+        }
+        if keys.pressed(KeyCode::D) {
+            let right = camera.rotation * Vec3::X * 0.1;
+            camera.translation += right;
+            println!("Rotation: {:?}", camera.rotation.y);
+        }
+        if keys.pressed(KeyCode::A) {
+            let right = camera.rotation * Vec3::X * -0.1;
+            camera.translation += right;
+        }
+        if keys.pressed(KeyCode::W) {
+            let forward = camera.rotation * Vec3::Z * -0.1;
+            camera.translation += forward;
+        }
+        if keys.pressed(KeyCode::S) {
+            let forward = camera.rotation * Vec3::Z * 0.1;
+            camera.translation += forward;
+        }
+        if keys.pressed(KeyCode::Space) {
+            let up = camera.rotation * Vec3::Y * 0.1;
+            camera.translation += up;
+        }
+        if keys.pressed(KeyCode::LControl) {
+            let up = camera.rotation * Vec3::Y * -0.1;
+            camera.translation += up;
+        }
+    }
+}
+
+fn mouse_motion(
+    mut motion_evr: EventReader<MouseMotion>,
+) {
+    for ev in motion_evr.iter() {
+        println!("Mouse moved: X: {} px, Y: {} px", ev.delta.x, ev.delta.y);
+    } 
+}
+
+fn get_primary_window_size(windows: &Res<Windows>) -> Vec2 {
+    let window = windows.get_primary().unwrap();
+    let window = Vec2::new(window.width() as f32, window.height() as f32);
+    window
+}
+
+fn grab_mouse(mut windows: ResMut<Windows>,) {
+    let window = windows.get_primary_mut().unwrap();
+    window.set_cursor_grab_mode(CursorGrabMode::Locked);
+    window.set_cursor_visibility(false);
 }
