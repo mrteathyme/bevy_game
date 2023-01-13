@@ -20,6 +20,11 @@ pub struct Bullet {
     speed: f32,
 }
 
+#[derive(Component,Reflect)]
+pub struct Hitbox {
+    dimensions: Vec3
+}
+
 
 fn main() {
     App::new()
@@ -31,8 +36,11 @@ fn main() {
     .add_system(tower_shooting)
     .add_system(bullet_despawn)
     .add_system(camera_movement)
+    .add_system(collision)
     .add_system(bullet_movement)
     //.add_system(mouse_motion)
+    .add_system(cube_spawner)
+    
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         window: WindowDescriptor {
             width: WIDTH,
@@ -46,6 +54,7 @@ fn main() {
     .add_plugin(WorldInspectorPlugin)
     .register_type::<Tower>()
     .register_type::<Bullet>()
+    .register_type::<Hitbox>()
     .run();
 }
 
@@ -79,7 +88,10 @@ fn spawn_basic_scene(
     .insert(Tower {
         shooting_timer: Timer::from_seconds(1.0, TimerMode::Repeating),
         size: 1.0,
-        bullet_speed: 1.0
+        bullet_speed: 10.0
+    })
+    .insert(Hitbox {
+        dimensions: Vec3::new(1.0, 1.0, 1.0)
     })
     .insert(Name::new("Tower"));
     commands.spawn(PointLightBundle {
@@ -90,8 +102,7 @@ fn spawn_basic_scene(
         },
         transform: Transform::from_xyz(4.0, 8.0, 4.0),
         ..default()
-    })
-    .insert(Name::new("Tower"));
+    });
 }
 
 fn tower_shooting(
@@ -104,7 +115,7 @@ fn tower_shooting(
     for (mut tower, transform) in &mut towers {
         tower.shooting_timer.tick(time.delta());
         if tower.shooting_timer.just_finished() {
-            let offset = Vec3::new(0.0, 0.0, -(tower.size/2.0+0.1));
+            let offset = Vec3::new(0.0, 0.0, -(tower.size/2.0+0.052));
             let spawn_location = transform.translation + offset;
             let spawn_transform =    Transform::from_translation(spawn_location).with_rotation(transform.rotation);
         
@@ -118,18 +129,84 @@ fn tower_shooting(
             lifetime: Timer::from_seconds(0.5, TimerMode::Repeating),
             speed: tower.bullet_speed
         })
+        .insert(Hitbox {
+            dimensions: Vec3::new(0.1, 0.1, 0.1)
+        })
         .insert(Name::new("Bullet"));
     }
     }
 }
 
-fn bullet_movement(
-    time: Res<Time>,
-    mut bullets: Query<(&Bullet, &mut Transform)>,
+fn cube_spawner(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    keys: Res<Input<KeyCode>>,
 ) {
-    for (bullet, mut transform)in &mut bullets {
+    if keys.just_pressed(KeyCode::F) {
+        commands.spawn(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Cube {size: 1.0})),
+            material: materials.add(Color::rgb(0.67, 0.84, 0.92).into()),
+            transform: Transform::from_xyz(0.0,0.5,-5.0),
+            ..default()})
+        .insert(Hitbox {
+            dimensions: Vec3::new(1.0, 1.0, 1.0)
+        });
+    }
+}
+
+fn bullet_movement(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut bullets: Query<(&Bullet, &Hitbox, &mut Transform)>,
+    hitboxes: Query<(&Hitbox, Entity, &Transform), Without<Bullet>>,
+) {
+    for (bullet, bullet_hitbox, mut transform)in &mut bullets {
         let forwards = transform.rotation * Vec3::Z * -bullet.speed;
         transform.translation += forwards * time.delta_seconds();
+        for (hitbox, entity, location) in &hitboxes {
+            let location_delta = transform.translation-location.translation;
+            //println!{"{:?}, {:?} ,{:?}",location_delta,transform.translation,location.translation};
+            //if  location_delta.z.abs() <= hitbox.dimensions.z/2.0 && location_delta.x.abs() <= hitbox.dimensions.x/2.0 && location_delta.y.abs() <= hitbox.dimensions.y/2.0  {
+            if  location_delta.z.abs() <= hitbox.dimensions.z/2.0+bullet_hitbox.dimensions.z/2.0+bullet.speed*time.delta_seconds() && location_delta.x.abs() <= hitbox.dimensions.x/2.0+bullet_hitbox.dimensions.x/2.0+bullet.speed*time.delta_seconds() && location_delta.y.abs() <= hitbox.dimensions.y/2.0+bullet_hitbox.dimensions.y/2.0+bullet.speed*time.delta_seconds()  {
+                //commands.entity(entity).despawn_recursive();
+            }
+        }
+    }
+}
+
+fn collision(
+    mut commands: Commands,
+    hitboxes: Query<(&Hitbox, Entity, &Transform, Option<&Parent>)>,
+) {
+    //let hitbox_copy = &hitboxes;
+    for (hitboxa, entitya, locationa, parenta) in &hitboxes {
+        for (hitboxb, entityb, locationb, parentb) in &hitboxes {
+            let parenta_id = match parenta {
+                Some(id) => {
+                    id.index()
+                },
+                None => {
+                    0
+                }
+            };
+            let parentb_id = match parentb {
+                Some(id) => {
+                    id.index()
+                },
+                None => {
+                    0
+                }
+            };
+            if entitya == entityb || parenta_id == entityb.index() || parentb_id == entitya.index() {
+                continue
+            }
+            let location_delta = locationa.translation-locationb.translation;
+            if  location_delta.z.abs() <= hitboxa.dimensions.z/2.0+hitboxb.dimensions.z/2.0 && location_delta.x.abs() <= hitboxa.dimensions.x/2.0+hitboxb.dimensions.x/2.0 && location_delta.y.abs() <= hitboxa.dimensions.y/2.0+hitboxb.dimensions.y/2.0  {
+                println!("{:?},{:?},{:?}",location_delta,locationa.translation,locationb.translation);
+                println!("Collision");
+            }
+        }
     }
 }
 
@@ -168,7 +245,6 @@ fn camera_movement(
             let pitch = Quat::from_rotation_x(-delta_y);
             camera.rotation = yaw * camera.rotation; // rotate around global y axis
             camera.rotation = camera.rotation * pitch; // rotate around local x axis
-            println!("Mouse moved: X: {} px, Y: {} px", ev.delta.x, ev.delta.y);
         }
         if keys.pressed(KeyCode::D) {
             let right = camera.rotation * Vec3::X * 0.1;
