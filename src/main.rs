@@ -10,11 +10,14 @@ pub const WIDTH: f32 = 2560.0;
 #[derive(Component,Reflect)]
 pub struct Tower {
     shooting_timer: Timer,
+    size: f32,
+    bullet_speed: f32,
 }
 
 #[derive(Component,Reflect)]
-pub struct Lifetime {
-    timer: Timer,
+pub struct Bullet {
+    lifetime: Timer,
+    speed: f32,
 }
 
 
@@ -28,6 +31,7 @@ fn main() {
     .add_system(tower_shooting)
     .add_system(bullet_despawn)
     .add_system(camera_movement)
+    .add_system(bullet_movement)
     //.add_system(mouse_motion)
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         window: WindowDescriptor {
@@ -41,7 +45,7 @@ fn main() {
     }))
     .add_plugin(WorldInspectorPlugin)
     .register_type::<Tower>()
-    .register_type::<Lifetime>()
+    .register_type::<Bullet>()
     .run();
 }
 
@@ -73,7 +77,9 @@ fn spawn_basic_scene(
         ..default()
     })
     .insert(Tower {
-        shooting_timer: Timer::from_seconds(1.0, TimerMode::Repeating)
+        shooting_timer: Timer::from_seconds(1.0, TimerMode::Repeating),
+        size: 1.0,
+        bullet_speed: 1.0
     })
     .insert(Name::new("Tower"));
     commands.spawn(PointLightBundle {
@@ -92,14 +98,15 @@ fn tower_shooting(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut towers: Query<&mut Tower>,
+    mut towers: Query<(&mut Tower, &Transform)>,
     time: Res<Time>,
 ) {
-    for mut tower in &mut towers {
+    for (mut tower, transform) in &mut towers {
         tower.shooting_timer.tick(time.delta());
         if tower.shooting_timer.just_finished() {
-            let spawn_transform = 
-                Transform::from_xyz(0.0,0.7,0.6).with_rotation(Quat::from_rotation_y(-PI / 2.0));
+            let offset = Vec3::new(0.0, 0.0, -(tower.size/2.0+0.1));
+            let spawn_location = transform.translation + offset;
+            let spawn_transform =    Transform::from_translation(spawn_location).with_rotation(transform.rotation);
         
         commands.spawn(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Cube {size: 0.1})),
@@ -107,22 +114,33 @@ fn tower_shooting(
             transform: spawn_transform,
             ..default()
         })
-        .insert(Lifetime {
-            timer: Timer::from_seconds(0.5, TimerMode::Repeating)
+        .insert(Bullet {
+            lifetime: Timer::from_seconds(0.5, TimerMode::Repeating),
+            speed: tower.bullet_speed
         })
         .insert(Name::new("Bullet"));
     }
     }
 }
 
+fn bullet_movement(
+    time: Res<Time>,
+    mut bullets: Query<(&Bullet, &mut Transform)>,
+) {
+    for (bullet, mut transform)in &mut bullets {
+        let forwards = transform.rotation * Vec3::Z * -bullet.speed;
+        transform.translation += forwards * time.delta_seconds();
+    }
+}
+
 fn bullet_despawn(
     mut commands: Commands,
-    mut bullets: Query<(Entity, &mut Lifetime)>,
+    mut bullets: Query<(Entity, &mut Bullet)>,
     time: Res<Time>,
 ) {
-    for (entity, mut lifetime )in &mut bullets {
-        lifetime.timer.tick(time.delta());
-        if lifetime.timer.just_finished() {
+    for (entity, mut bullet )in &mut bullets {
+        bullet.lifetime.tick(time.delta());
+        if bullet.lifetime.just_finished() {
             commands.entity(entity).despawn_recursive();
         }
     }
