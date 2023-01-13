@@ -3,10 +3,10 @@
 [![Stargazers][stars-shield]][stars-url]
 
 # A Game using the Bevy Engine
-Just following Logic Projects bevy development tutorial to learn the engine.
+Just learning how to use bevy at my own pace.
 
 ## Highlighted Features
-- is game
+- is game(?)
 
 ## Contact
 
